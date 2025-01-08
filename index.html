@@ -99,7 +99,7 @@
         document.addEventListener('DOMContentLoaded', async () => {
             const urlInfoElement = document.getElementById('urlInfo');
             const ipInfoElement = document.getElementById('ipInfo');
-            const currentUrl = window.location.href;
+            const currentUrl = `${window.location.protocol}//${window.location.hostname}${window.location.port ? ':' + window.location.port : ''}`;
 
             // Fetch the public IP address
             const response = await fetch('https://api.ipify.org?format=json');

@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Azure Blob Container Browser</title>
+    <style>
+        .error {
+            color: black;
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            padding: 20px;
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            z-index: 1000;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            width: 33.33%;
+            /* 1/3 of the page width */
+            word-wrap: break-word;
+            /* Wrap text if too long */
+        }
+
+        .error .close-btn {
+            position: absolute;
+            top: 5px;
+            right: 10px;
+            font-size: 20px;
+            font-weight: bold;
+            line-height: 20px;
+            cursor: pointer;
+            color: #000;
+        }
+
+        .folder {
+            cursor: pointer;
+        }
+
+        .blob {
+            cursor: text;
+            pointer-events: unset;
+        }
+
+        .blob a {
+            cursor: pointer;
+            pointer-events: auto;
+        }
+
+        .sasForm {
+            display: flex;
+            align-items: center; /* Align items vertically */
+        }
+        .sasForm input {
+            flex: 1;
+            padding: 5px;
+        }
+        .sasForm button {
+            width: 100px; /* Fixed width for the button */
+            padding: 5px;
+        }
+
+        .center-text {
+            position: fixed;
+            top: 30%;
+            left: 50%;
+            transform: translate(-50%, -50%);            
+        }
+
+        .center-text h1{
+            font-size: 44px;
+        }
+    </style>
+</head>
+
+<body>
+    <form id="sasForm" class="sasForm">
+        <input type="text" id="sasUrl" name="sasUrl" required placeholder="Paste the SAS URL here. Ensure the SAS URL has atleast Read and List permissions, and that the expiry date is in the future.">
+        <button type="submit">List Blobs</button>
+    </form>
+    <ul id="blobList"></ul>
+    <div id="debugInfo"></div>
+    <div id="centerText" class="center-text">
+        <h1>Azure Blob Container Browser</h1>
+        <p>Paste the SAS URL in the input field at the top and click on List Blobs</p>
+        <ul>
+            <li>Ensure the SAS URL has both the Read and List permissions</li>
+            <li id="urlInfo">CORS settings on the Storage Account must allow GET and POST request from this URL</li>
+            <li id="ipInfo">Firewall settings on the Storage Account must allow request from this IP</li>
+        </ul>
+
+    </div>
+
+    <script type="module">
+        import { BlobServiceClient } from "https://cdn.jsdelivr.net/npm/@azure/storage-blob@12.8.0/+esm";
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            const urlInfoElement = document.getElementById('urlInfo');
+            const ipInfoElement = document.getElementById('ipInfo');
+            const currentUrl = window.location.href;
+
+            // Fetch the public IP address
+            const response = await fetch('https://api.ipify.org?format=json');
+            const data = await response.json();
+            const publicIp = data.ip;
+
+            // Replace placeholders with actual values
+            urlInfoElement.innerHTML = urlInfoElement.innerHTML.replace('this URL', currentUrl);
+            ipInfoElement.innerHTML = ipInfoElement.innerHTML.replace('this IP', publicIp);
+        });
+
+        document.getElementById('sasForm').addEventListener('submit', async function (event) {
+            event.preventDefault();
+            const sasUrl = document.getElementById('sasUrl').value;
+            const blobListElement = document.getElementById('blobList');
+            const debugInfoElement = document.getElementById('debugInfo');
+            const centerTextElement = document.getElementById('centerText');
+            blobListElement.innerHTML = '';
+            debugInfoElement.innerHTML = '';
+
+            // Hide the center text when the button is clicked
+            centerTextElement.style.display = 'none';
+            sasForm.style.display = 'none';
+
+            function formatSize(bytes) {
+                if (bytes === 0) return '0 Bytes';
+                const k = 1024;
+                const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+                const i = Math.floor(Math.log(bytes) / Math.log(k));
+                return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+            }
+
+            try {
+                const sasToken = sasUrl.split('?')[1];
+                const urlParts = sasUrl.split('?')[0].split('/');
+                const storageAccountName = urlParts[2].split('.')[0];
+                const blobContainerName = urlParts[3];
+                const path = urlParts.slice(4).join('/'); // Handle paths correctly
+
+                const blobServiceClient = new BlobServiceClient(`https://${storageAccountName}.blob.core.windows.net?${sasToken}`);
+                const containerClient = blobServiceClient.getContainerClient(blobContainerName);
+
+                async function listBlobs(containerClient, prefix = '', parentElement) {
+                    for await (const item of containerClient.listBlobsByHierarchy('/', { prefix })) {
+                        const listItem = document.createElement('li');
+                        const relativeName = item.name.replace(prefix, '');
+                        if (item.kind === 'prefix') {
+                            listItem.className = 'folder';
+                            listItem.innerHTML = `📁 ${relativeName}`;
+                            listItem.addEventListener('click', async (event) => {
+                                event.stopPropagation();
+                                const sublist = listItem.querySelector('ul');
+                                if (sublist) {
+                                    sublist.style.display = sublist.style.display === 'none' ? 'block' : 'none';
+                                } else {
+                                    const newSublist = document.createElement('ul');
+                                    await listBlobs(containerClient, item.name, newSublist);
+                                    listItem.appendChild(newSublist);
+                                }
+                            });
+                        } else {
+                            listItem.className = 'blob';
+                            const blobUrl = `https://${storageAccountName}.blob.core.windows.net/${blobContainerName}/${item.name}?${sasToken}`;
+                            const downloadLink = document.createElement('a');
+                            downloadLink.href = blobUrl;
+                            downloadLink.download = '';
+                            downloadLink.textContent = 'Download';
+                            const lastModified = new Date(item.properties.lastModified).toLocaleString();
+                            const size = formatSize(item.properties.contentLength);
+                            listItem.innerHTML = `📄 ${relativeName} - Last Modified: ${lastModified} - Size: ${size}`;
+                            listItem.appendChild(document.createTextNode(' - '));
+                            listItem.appendChild(downloadLink);
+                            listItem.addEventListener('click', (event) => {
+                                event.stopPropagation(); // Prevent the event from bubbling up
+                            });
+                        }
+                        parentElement.appendChild(listItem);
+                    }
+                }
+
+                const blobList = document.createElement('ul');
+                await listBlobs(containerClient, path, blobList); // Use path as prefix
+                blobListElement.appendChild(blobList);
+            } catch (error) {
+                let errorMessage = `<i>Error: ${error.message} | Open console error logs in the browser using CTRL + SHIFT + I to get detailed information.</i>`;
+                const errorElement = document.createElement('p');
+                errorElement.className = 'error';
+                errorElement.innerHTML = errorMessage;
+                debugInfoElement.appendChild(errorElement);
+                // Add close button to the error message
+                const closeButton = document.createElement('span');
+                closeButton.className = 'close-btn';
+                closeButton.innerHTML = '&times;';
+                closeButton.addEventListener('click', () => {
+                    errorElement.remove();
+                });
+                errorElement.appendChild(closeButton);
+                debugInfoElement.appendChild(errorElement);
+            }
+        });
+    </script>
+</body>
+
+</html>

@@ -1,6 +1,8 @@
-# azureblobcontainerbrowser
+# Azure Blob Container Browser
 
 Live demo available on https://kmhuglen.github.io/azureblobcontainerbrowser/
+
+The Azure Blob Container Browser is a web application that allows users to browse and download files from an Azure Blob Storage container. Users need to provide a Shared Access Signature (SAS) URL with read and list permissions. The app lists the blobs (files) in the container, displaying their names, last modified dates, and sizes. Users can click on folders to navigate through the directory structure and download individual files directly from the browser. The app also provides error handling and displays relevant information about CORS and firewall settings required for accessing the storage account.
 
 ## Help Guide for Azure Blob Container Browser
 
